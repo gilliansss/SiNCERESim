@@ -55,7 +55,7 @@ def run_single(param, neu_param):
     spike_trains = [None]*num_neurons           #Initialize list to store spike timestamp for each neurons
 
     for neuronid in range(num_neurons):
-        min_gap = 0.002
+        min_gap = 0.003 #2ms of the spikes + 1ms refractory period
         window  = off[neuronid] - on[neuronid]
         n_spikes=round(rate[neuronid]*(off[neuronid]-on[neuronid]))
 
