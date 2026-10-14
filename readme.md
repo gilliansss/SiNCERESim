@@ -5,6 +5,8 @@
 
 # Install
 ```
+git clone http://github.com/nbekajaya/SiNCERESim.git
+cd SiNCERESim
 python -m venv .venv
 .venv/bin/pip install -r requirements.txt
 ```
