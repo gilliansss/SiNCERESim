@@ -3,8 +3,11 @@ from scipy.signal.windows import gaussian as gaussian_window
 
 
 def gaussian(x, sigma, spike_duration):
-    freq = 2.0 / spike_duration
-    window = gaussian_window(len(x), sigma)
+    freq = 2 / spike_duration
+    center = spike_duration / 2
+    window = np.exp(-0.5 * ((x - center) / sigma)**2)
+    
+    # Multiply by the sine wave
     return window * np.sin(2 * np.pi * freq * x)
 
 def double_exp(t_rise, t_decay, x):
