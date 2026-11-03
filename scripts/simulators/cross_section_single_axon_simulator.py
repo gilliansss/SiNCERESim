@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 
+
 # take the raw waveforms from singleneuron-2.py, doesnt include the filtering interpolation etc
 from raw_waveform_generator import get_spike_waveform
 
@@ -27,8 +28,7 @@ def simulate(positions, parameter, neu_parameter):
     spiketype = "Gaussian-modulated sine model"
 
     _, waveform = get_spike_waveform(Fs, spike_duration=spike_duration, kind=spiketype) 
-    print("Waveform max:", np.max(waveform), "| Length:", len(waveform))
-
+    
     time_axis = int(record_duration_s * Fs) + 1 
     time = np.arange(time_axis) / Fs 
     
@@ -38,7 +38,7 @@ def simulate(positions, parameter, neu_parameter):
     all_spikes=[]
     final_delay_samples = 0
 
-    # FIXED: Only ONE loop here
+    
     for neuronid in range(num_neurons):
         r, c = positions[neuronid]
         axon_x = (c - 2) * grid_spacing_mm
@@ -84,11 +84,7 @@ def simulate(positions, parameter, neu_parameter):
             starts.append([
                 [start_idx, start_idx + spike_samples], 
                 [start_idx + section_delay, start_idx + section_delay + spike_samples]
-            ])
-                # Put this right before the placement loop:
-        print(f"Spikes generated: {len(spikes)}")
-        print(f"Starts generated: {len(starts)}")
-        print(f"First start index: {starts[0][0]}")    
+            ])  
         for time_pair in starts:
             for section in range(2):
                 start, end = time_pair[section]
@@ -119,6 +115,7 @@ class CrossSectionWidget:
 
         self.rng = np.random.default_rng()
         self.current_positions = None
+        self.all_runs_data = [] 
 
         # 3. Build UI Frames
         # --- Simulation Frame ---
@@ -141,7 +138,7 @@ class CrossSectionWidget:
         
         tk.Button(button_frame, text="Run (new random axon)", command=self.run).pack(side="left", padx=8)
         tk.Button(button_frame, text="Run (same axon)", command=self.run_same_axon).pack(side="left", padx=8)
-    
+        tk.Button(button_frame, text="Save CSV", command=self.save_csv).pack(side="left", padx=8)
         # 4. Build Figure and Canvas
                 # Create a 3x2 grid: cross-section on the left, 3 plots on the right
         self.figure, axes = plt.subplot_mosaic(
@@ -221,6 +218,46 @@ class CrossSectionWidget:
             width=9,
         ).grid(row=row + 1, column=column, padx=3, sticky="w", pady=(0, 5))
 
+    def save_csv(self):
+        filepath = tk.filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            filetypes=[("CSV Files", "*.csv"), ("All Files", "*.*")],
+            title="Save Simulation Data"
+        )
+        
+        if not filepath:
+            return
+
+        all_data_rows = []
+        
+        # Loop through every run and format it
+        for run_idx, (time, signals, axons) in enumerate(self.all_runs_data, start=1):
+            pos_str = " | ".join([f"[{p[0]:.2f}, {p[1]:.2f}]" for p in axons])
+            # Create a column for the run number
+            run_col = np.full_like(time, run_idx)
+            pos_col = np.full(time.shape, pos_str, dtype=object)
+            
+            # Stack time, run number, and all 8 electrode signals
+            run_data = np.column_stack((
+                run_col,
+                time,
+                pos_col,
+                signals[0, 0], signals[0, 1], signals[0, 2], signals[0, 3],
+                signals[1, 0], signals[1, 1], signals[1, 2], signals[1, 3]
+            ))
+            all_data_rows.append(run_data)
+
+        # Stack all the runs vertically into one big array
+        final_data = np.vstack(all_data_rows)
+
+        # Update header to include Axon Position
+        header = "Run, Time(s), Axon_Position(x,y), Sec1_E1, Sec1_E2, Sec1_E3, Sec1_E4, Sec2_E1, Sec2_E2, Sec2_E3, Sec2_E4"
+        
+        # Update formatting: %d for Run, %.6f for time, %s for string position, and %.6f for the 8 signals
+        fmt_list = ['%d', '%.6f', '%s'] + ['%.6f'] * 8
+        
+        np.savetxt(filepath, final_data, delimiter=",", header=header, comments='', fmt=fmt_list)
+        
     # pick random grid
     def run(self, positions=None):
         num_neurons = self.num_neurons_var.get()
@@ -231,6 +268,7 @@ class CrossSectionWidget:
             
         # Save the positions so the "Same Axon" button can reuse them
         self.current_positions = positions
+    
 
         param = {
         "Fs": self.Fs_var.get(),
@@ -251,6 +289,7 @@ class CrossSectionWidget:
             parameter=param, 
             neu_parameter=neu_param
             )
+        self.all_runs_data.append((time.copy(), signals.copy(), axons.copy()))
 
         self.ax_grid.clear()
         self.ax_section1.clear()
