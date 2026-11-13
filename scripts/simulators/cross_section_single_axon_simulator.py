@@ -9,9 +9,12 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 from raw_waveform_generator import get_spike_waveform
 
 spike_duration=0.002
-grid_spacing_mm = 0.1
+grid_spacing_mm = 0.05
 nerve_radius_mm = 0.4
 axis_limit = 0.75
+
+grid_size = 17
+half_grid = 8
     
 def simulate(positions, parameter, neu_parameter):
     Fs = parameter["Fs"]
@@ -41,8 +44,8 @@ def simulate(positions, parameter, neu_parameter):
     
     for neuronid in range(num_neurons):
         r, c = positions[neuronid]
-        axon_x = (c - 2) * grid_spacing_mm
-        axon_y = (r - 2) * grid_spacing_mm
+        axon_x = (c - half_grid) * grid_spacing_mm
+        axon_y = (r - half_grid) * grid_spacing_mm
         axon_position = np.array([axon_x, axon_y])
         axon_positions.append(axon_position)
     
@@ -258,13 +261,38 @@ class CrossSectionWidget:
         
         np.savetxt(filepath, final_data, delimiter=",", header=header, comments='', fmt=fmt_list)
         
+    # To prevent the axon to be plotted outside nerve
+    def get_valid_positions(self, num_neurons):
+        valid_positions = []
+
+        for r in range(grid_size):
+            for c in range(grid_size):
+                x = (c - half_grid) * grid_spacing_mm
+                y = (r - half_grid) * grid_spacing_mm
+
+                if np.hypot(x, y) <= nerve_radius_mm:
+                    valid_positions.append((r, c))
+
+        if num_neurons > len(valid_positions):
+            raise ValueError(
+                "Error"
+            )
+
+        chosen_indices = self.rng.choice(
+            len(valid_positions),
+            size=num_neurons,
+            replace=False
+        )
+
+        return [valid_positions[index] for index in chosen_indices]
+
     # pick random grid
     def run(self, positions=None):
         num_neurons = self.num_neurons_var.get()
         
         # If no positions are passed in, generate new random ones
         if positions is None:
-            positions = [(int(self.rng.integers(0, 5)), int(self.rng.integers(0, 5))) for _ in range(num_neurons)]
+            positions = self.get_valid_positions(num_neurons)
             
         # Save the positions so the "Same Axon" button can reuse them
         self.current_positions = positions
@@ -296,9 +324,9 @@ class CrossSectionWidget:
         self.ax_section2.clear()
         self.ax_raster.clear()
 
-        # draw the 5x5 position grid.
-        for i in range(5):
-            p = (i - 2) * grid_spacing_mm
+        # draw the 17x17 position grid.
+        for i in range(grid_size):
+            p = (i - half_grid) * grid_spacing_mm
             self.ax_grid.axvline(p, color="lightgray", linewidth=0.7)
             self.ax_grid.axhline(p, color="lightgray", linewidth=0.7)
 
@@ -325,13 +353,13 @@ class CrossSectionWidget:
 
         # axon plot
         for axon_pos in axons:
-            self.ax_grid.plot(axon_pos[0], axon_pos[1], "o", ms=5, color="#a33", zorder=4)
+            self.ax_grid.plot(axon_pos[0], axon_pos[1], "o", ms=3, color="#a33", zorder=4)
         # plot
         self.ax_grid.set_aspect("equal")
         self.ax_grid.set_xlim(-axis_limit, axis_limit)
         self.ax_grid.set_ylim(-axis_limit, axis_limit)
-        self.ax_grid.set_xticks([-0.5, -0.25, 0.0, 0.25, 0.5])
-        self.ax_grid.set_yticks([-0.5, -0.25, 0.0, 0.25, 0.5])
+        self.ax_grid.set_xticks(np.arange(-0.4, 0.41, 0.1))
+        self.ax_grid.set_yticks(np.arange(-0.4, 0.41, 0.1))
         self.ax_grid.tick_params(axis="x", labelsize=3.5, pad=1)
         self.ax_grid.tick_params(axis="y", labelsize=4.2, pad=1)
         self.ax_grid.set_xlabel("x (mm)", size=6)
