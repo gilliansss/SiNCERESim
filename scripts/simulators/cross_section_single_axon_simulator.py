@@ -3,6 +3,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+from crosscorrelation import *
+from tkinter import messagebox
+
 
 
 # take the raw waveforms from singleneuron-2.py, doesnt include the filtering interpolation etc
@@ -97,6 +100,8 @@ def simulate(positions, parameter, neu_parameter):
                     signals[section, electrode, start:end] += (amplitude[neuronid] * weights[electrode] * waveform)
 
     return time, signals, axon_positions, electrodes, final_delay_samples, all_spikes
+
+
 class CrossSectionWidget:
     def __init__(self, root):
         self.root = root
@@ -120,7 +125,6 @@ class CrossSectionWidget:
         self.current_positions = None
         self.all_runs_data = [] 
 
-        # 3. Build UI Frames
         # --- Simulation Frame ---
         sim_frame = tk.LabelFrame(root, text="Simulation Parameters", padx=5, pady=5)
         sim_frame.pack(padx=8, pady=5, fill="x")
@@ -131,10 +135,21 @@ class CrossSectionWidget:
         self.add_control(sim_frame, "Distance (mm)", self.section_distance_var,1,10, 1,6)
         self.add_control(sim_frame, "Attenuation Rate", self.attenuation_var, 1,5,1, 8)
 
-        # --- Neuron Frame ---
+        #Neuron Frame
         self.neu_frame = tk.LabelFrame(root, text="Neuron Parameters", padx=5, pady=5)
         self.neu_frame.pack(padx=8, pady=5, fill="x")
-        
+
+        #Crosscorrelation frame
+        xcorr_frame = tk.LabelFrame(root, text="Cross-Correlation Parameters", padx=5, pady=5)
+        xcorr_frame.pack(padx=8, pady=5, fill="x")
+
+        self.xcorr_win_var = tk.DoubleVar(value=0.1) 
+        self.xcorr_step_var = tk.DoubleVar(value=0.01) 
+        self.xcorr_lag_var = tk.DoubleVar(value=0.002) 
+
+        self.add_control(xcorr_frame, "Window Width (s)", self.xcorr_win_var, 0.001, 0.1, 0.01, 0)
+        self.add_control(xcorr_frame, "Step Size (s)", self.xcorr_step_var, 0.0005, 0.05, 0.001, 2)
+        self.add_control(xcorr_frame, "Max Lag (s)", self.xcorr_lag_var, 0.001, 0.05, 0.001, 4)
         # --- Button Frame ---
         button_frame = tk.Frame(root)
         button_frame.pack(padx=8, pady=5)
@@ -142,8 +157,9 @@ class CrossSectionWidget:
         tk.Button(button_frame, text="Run (new random axon)", command=self.run).pack(side="left", padx=8)
         tk.Button(button_frame, text="Run (same axon)", command=self.run_same_axon).pack(side="left", padx=8)
         tk.Button(button_frame, text="Save CSV", command=self.save_csv).pack(side="left", padx=8)
-        # 4. Build Figure and Canvas
-                # Create a 3x2 grid: cross-section on the left, 3 plots on the right
+        tk.Button(button_frame, text="Show Heatmap", command=self.show_heatmap).pack(side="left", padx=8)
+        
+        #Generate the graph 
         self.figure, axes = plt.subplot_mosaic(
             [["cross", "sig1"], 
              ["cross", "sig2"],
@@ -163,11 +179,11 @@ class CrossSectionWidget:
         self.ax_raster.sharex(self.ax_section1)
         self.canvas = FigureCanvasTkAgg(self.figure, master=root)
         
-        # --- ADD THESE 3 LINES FOR THE TOOLBAR ---
+
         self.toolbar = NavigationToolbar2Tk(self.canvas, root)
         self.toolbar.update()
         self.toolbar.pack(side=tk.TOP, fill=tk.X)
-        # -----------------------------------------
+
         
         self.canvas.get_tk_widget().pack(fill="both", expand=True)
         # 5. Initialize the Neuron Controls for the first time
@@ -220,7 +236,40 @@ class CrossSectionWidget:
             increment=step,
             width=9,
         ).grid(row=row + 1, column=column, padx=3, sticky="w", pady=(0, 5))
+    
 
+    def show_heatmap(self):
+        if not self.all_runs_data:
+            messagebox.showwarning("No Data", "Run a simulation first!")
+            return
+
+        try:
+            time, signals, axons = self.all_runs_data[-1]
+            Fs = self.Fs_var.get()
+            distance_mm = self.section_distance_var.get()
+            sig1 = signals[0, 0, :] # Section 1, E1
+            sig2 = signals[1, 0, :] # Section 2, E1
+
+            fig = compute_and_plot_heatmap(
+                sig1, sig2, Fs, distance_mm, 
+                window_width_s=self.xcorr_win_var.get(), 
+                step_size_s=self.xcorr_step_var.get(), 
+                range_lags_s=self.xcorr_lag_var.get()
+            )
+
+            if fig is not None:
+                top = tk.Toplevel(self.root)
+                top.title("Cross-Correlation Heatmap")
+                top.geometry("1000x600")
+                top.lift()
+                top.focus_force()
+                top.attributes('-topmost', True)
+                top.after_idle(top.attributes, '-topmost', False)
+                canvas = FigureCanvasTkAgg(fig, master=top)
+                canvas.draw()
+                canvas.get_tk_widget().pack(fill="both", expand=True)
+        except Exception as e:
+            messagebox.showerror("Heatmap Error", f"An error occurred:\n{str(e)}")
     def save_csv(self):
         filepath = tk.filedialog.asksaveasfilename(
             defaultextension=".csv",
@@ -260,6 +309,8 @@ class CrossSectionWidget:
         fmt_list = ['%d', '%.6f', '%s'] + ['%.6f'] * 8
         
         np.savetxt(filepath, final_data, delimiter=",", header=header, comments='', fmt=fmt_list)
+
+    
         
     # To prevent the axon to be plotted outside nerve
     def get_valid_positions(self, num_neurons):
