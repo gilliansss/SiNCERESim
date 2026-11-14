@@ -61,22 +61,27 @@ def compute_and_plot_heatmap(sig1, sig2, Fs, distance_mm, window_width_s, step_s
     # Y-axis: Lag or Velocity
     lags = np.linspace(-range_lags_s, range_lags_s, 2 * max_lag_samples + 1)
     
-    # If we want velocity mode (based on your MATLAB code)
-    velocity_mode = False # Set to False if you want Lag (ms)
+    # Velocity mode 
+    velocity_mode = False  # Try changing this to True later once it works!
     
     if velocity_mode:
         safe_lags = lags.copy()
-        safe_lags[np.abs(safe_lags) < 1e-6] = 1e-6 #Prevent division by zero and extreme infinity values
+        safe_lags[np.abs(safe_lags) < 1e-6] = 1e-6 
         
         y_vals = (distance_mm / 1000.0) / safe_lags
-        y_axis = np.arcsinh(y_vals)
+
+        valid_mask = np.abs(y_vals) <= 120 
         
-        # FIX: pcolormesh requires the Y-axis to be monotonically increasing
-        sort_idx = np.argsort(y_axis)
-        y_axis = y_axis[sort_idx]
-        cross_correlations = cross_correlations[sort_idx, :] # Reorder the data to match the sorted Y
+        y_axis_masked = np.arcsinh(y_vals[valid_mask])
+        cross_correlations_masked = cross_correlations[valid_mask, :]
+        
+        sort_idx = np.argsort(y_axis_masked)
+        y_axis = y_axis_masked[sort_idx]
+        cross_correlations = cross_correlations_masked[sort_idx, :]
+        
         ylabel = 'Velocity (m/s)'
     else:
+        # Standard Lag Mode (Milliseconds)
         y_axis = lags * 1000
         ylabel = 'Lead/Lag (ms)'
         
@@ -108,10 +113,13 @@ def compute_and_plot_heatmap(sig1, sig2, Fs, distance_mm, window_width_s, step_s
     ax.set_title('Cross-correlation Heatmap (Proximal vs Distal)')
     
     if velocity_mode:
-        # Custom tick locations for asinh scale
-        tick_vals = [-200, -50, -10, -2, 2, 10, 50, 200]
+        # Set ticks up to 120
+        tick_vals = [-120, -100, -80, -50, -20, -10, 10, 20, 50, 80, 100, 120]
         ax.set_yticks(np.arcsinh(tick_vals))
         ax.set_yticklabels([str(v) for v in tick_vals])
+        
+        # FORCE the Y-axis limits
+        ax.set_ylim(np.arcsinh(-120), np.arcsinh(120))
     
     fig.colorbar(mesh, ax=ax, label="Correlation")
     return fig
