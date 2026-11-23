@@ -5,7 +5,7 @@ import matplotlib.cm as cm
 from scipy.signal import correlate
 from matplotlib.figure import Figure
 
-def compute_and_plot_heatmap(sig1, sig2, Fs, distance_mm, window_width_s, step_size_s, range_lags_s):
+def compute_and_plot_heatmap(sig1, sig2, Fs, distance_mm, window_width_s, step_size_s, range_lags_s, velocity_mode=True):
     # Convert time parameters to sample points
     step_samples = int(round(step_size_s * Fs))
     window_samples = int(round(window_width_s * Fs))
@@ -61,8 +61,6 @@ def compute_and_plot_heatmap(sig1, sig2, Fs, distance_mm, window_width_s, step_s
     # Y-axis: Lag or Velocity
     lags = np.linspace(-range_lags_s, range_lags_s, 2 * max_lag_samples + 1)
     
-    # Velocity mode 
-    velocity_mode = False  # Try changing this to True later once it works!
     
     if velocity_mode:
         safe_lags = lags.copy()
@@ -89,20 +87,26 @@ def compute_and_plot_heatmap(sig1, sig2, Fs, distance_mm, window_width_s, step_s
     mesh = ax.pcolormesh(time_axis, y_axis, cross_correlations, shading='auto', cmap='bone')
     
     # Custom Colormap (Bone for background, Hot for high correlation)
-    threshold_multiplier = 2.0
+    threshold_multiplier = 2.0 #increase or decrease threshold
     corr_threshold = threshold_multiplier * np.nanstd(cross_correlations)
     
     # Get min/max
+        # Get min/max
     c_min = np.nanmin(cross_correlations)
     c_max = np.nanmax(cross_correlations)
     
     if c_max > corr_threshold:
         # Create custom colormap
-        n_bone = int(160 * (corr_threshold - c_min) / (c_max - c_min))
-        n_hot = 160 - n_bone
+        n_bone = max(1, int(160 * (corr_threshold - c_min) / (c_max - c_min)))
+        n_hot = max(1, 160 - n_bone)
         
-        cmap_bone = cm.bone(np.linspace(0, 1, n_bone))
-        cmap_hot = cm.hot(np.linspace(0.5, 1, n_hot)) # Start hot at 0.5 (red/yellow)
+        # FIX: Only use the bottom half of bone (0 to 0.5) so it stays dark
+        cmap_bone = cm.bone(np.linspace(0, 0.5, n_bone)) 
+        
+        # FIX: Only use the top half of hot (0.5 to 1) so it starts at orange, not black
+        cmap_hot = cm.hot(np.linspace(0.5, 1, n_hot)) 
+        
+        # Combine them
         custom_cmap = mcolors.LinearSegmentedColormap.from_list('custom', np.vstack((cmap_bone, cmap_hot)))
         
         mesh.set_cmap(custom_cmap)

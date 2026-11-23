@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from crosscorrelation import *
-from tkinter import messagebox
+from tkinter import messagebox, ttk
 
 
 
@@ -26,6 +26,7 @@ def simulate(positions, parameter, neu_parameter):
     section_distance_mm = parameter["section_distance_mm"]
     noise_level = parameter["noise_level"]
     attenuation = parameter["attenuation"]
+    num_electrodes = parameter["num_electrodes"] 
     
     amplitude = neu_parameter["amp"]
     velocity = neu_parameter["velocity"]
@@ -39,7 +40,7 @@ def simulate(positions, parameter, neu_parameter):
     time = np.arange(time_axis) / Fs 
     
     rng = np.random.default_rng() 
-    signals = noise_level * rng.standard_normal((2, 4, time_axis))
+    signals = noise_level * rng.standard_normal((2, num_electrodes, time_axis))
     axon_positions = [] 
     all_spikes=[]
     final_delay_samples = 0
@@ -52,7 +53,7 @@ def simulate(positions, parameter, neu_parameter):
         axon_position = np.array([axon_x, axon_y])
         axon_positions.append(axon_position)
     
-        angles = np.arange(4) * np.pi/2
+        angles = np.arange(num_electrodes) * (2 * np.pi / num_electrodes)
         electrodes = nerve_radius_mm * np.column_stack((np.cos(angles), np.sin(angles)))
         
         distances = np.maximum(np.linalg.norm(electrodes - axon_position, axis=1), 0.01) 
@@ -96,7 +97,7 @@ def simulate(positions, parameter, neu_parameter):
                 start, end = time_pair[section]
                 if end > time_axis:
                     continue
-                for electrode in range(4):
+                for electrode in range(num_electrodes):
                     signals[section, electrode, start:end] += (amplitude[neuronid] * weights[electrode] * waveform)
 
     return time, signals, axon_positions, electrodes, final_delay_samples, all_spikes
@@ -115,6 +116,7 @@ class CrossSectionWidget:
         self.noise_level_var= tk.DoubleVar(value=0.05)
         self.section_distance_var= tk.IntVar(value=2) #distance between proximal and distal section 2mm
         self.attenuation_var=tk.IntVar(value= 1)
+        self.num_electrodes_var = tk.IntVar(value=4) 
 
         # 2. Neuron Variables (Lists to hold values for multiple neurons)
         self.amplitude_vars = []
@@ -134,6 +136,7 @@ class CrossSectionWidget:
         self.add_control(sim_frame, "Num Neurons", self.num_neurons_var, 1, 10, 1, 4)
         self.add_control(sim_frame, "Distance (mm)", self.section_distance_var,1,10, 1,6)
         self.add_control(sim_frame, "Attenuation Rate", self.attenuation_var, 1,5,1, 8)
+        self.add_control(sim_frame, "Num Electrodes", self.num_electrodes_var, 2, 16, 1, 10)
 
         #Neuron Frame
         self.neu_frame = tk.LabelFrame(root, text="Neuron Parameters", padx=5, pady=5)
@@ -150,6 +153,10 @@ class CrossSectionWidget:
         self.add_control(xcorr_frame, "Window Width (s)", self.xcorr_win_var, 0.001, 0.1, 0.01, 0)
         self.add_control(xcorr_frame, "Step Size (s)", self.xcorr_step_var, 0.0005, 0.05, 0.001, 2)
         self.add_control(xcorr_frame, "Max Lag (s)", self.xcorr_lag_var, 0.001, 0.05, 0.001, 4)
+        self.velocity_mode_var = tk.BooleanVar(value=True)
+        tk.Checkbutton(xcorr_frame, text="Velocity Mode", variable=self.velocity_mode_var).grid(
+            row=1, column=6, padx=10, pady=5, sticky="w"
+        )
         # --- Button Frame ---
         button_frame = tk.Frame(root)
         button_frame.pack(padx=8, pady=5)
@@ -244,32 +251,61 @@ class CrossSectionWidget:
             return
 
         try:
+            # grab data from the latest run
             time, signals, axons = self.all_runs_data[-1]
             Fs = self.Fs_var.get()
             distance_mm = self.section_distance_var.get()
-            sig1 = signals[0, 0, :] # Section 1, E1
-            sig2 = signals[1, 0, :] # Section 2, E1
 
-            fig = compute_and_plot_heatmap(
-                sig1, sig2, Fs, distance_mm, 
-                window_width_s=self.xcorr_win_var.get(), 
-                step_size_s=self.xcorr_step_var.get(), 
-                range_lags_s=self.xcorr_lag_var.get()
-            )
+            win_width = self.xcorr_win_var.get()
+            step_size = self.xcorr_step_var.get()
+            max_lag = self.xcorr_lag_var.get()
+            
+            # get num electrodes from GUI
+            num_electrodes = self.num_electrodes_var.get()
 
-            if fig is not None:
-                top = tk.Toplevel(self.root)
-                top.title("Cross-Correlation Heatmap")
-                top.geometry("1000x600")
-                top.lift()
-                top.focus_force()
-                top.attributes('-topmost', True)
-                top.after_idle(top.attributes, '-topmost', False)
-                canvas = FigureCanvasTkAgg(fig, master=top)
-                canvas.draw()
-                canvas.get_tk_widget().pack(fill="both", expand=True)
+            # create popup window for heatmaps
+            top = tk.Toplevel(self.root)
+            top.title("Cross-Correlation Heatmaps (All Electrodes)")
+            top.geometry("1200x700")
+            
+            # make tabs for each graph
+            notebook = ttk.Notebook(top)
+            notebook.pack(fill="both", expand=True)
+
+            # loop through all electrodes
+            for e in range(num_electrodes):
+                sig1 = signals[0, e, :] # proximal signal for this electrode
+                sig2 = signals[1, e, :] # distal signal for this electrode
+
+                # run cross correlation math
+                fig = compute_and_plot_heatmap(
+                    sig1, sig2, Fs, distance_mm, 
+                    window_width_s=win_width, 
+                    step_size_s=step_size, 
+                    range_lags_s=max_lag,
+                    velocity_mode=self.velocity_mode_var.get() # pass velocity checkbox state
+                )
+
+                if fig is not None:
+                    # add tab and draw graph
+                    tab = ttk.Frame(notebook)
+                    notebook.add(tab, text=f"Electrode {e + 1}")
+                    
+                    canvas = FigureCanvasTkAgg(fig, master=tab)
+                    canvas.draw()
+                    canvas.get_tk_widget().pack(fill="both", expand=True)
+
+            # force window to front (macos fix)
+            top.lift()
+            top.focus_force()
+            top.attributes('-topmost', True)
+            top.after_idle(top.attributes, '-topmost', False)
+                
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             messagebox.showerror("Heatmap Error", f"An error occurred:\n{str(e)}")
+
     def save_csv(self):
         filepath = tk.filedialog.asksaveasfilename(
             defaultextension=".csv",
@@ -279,7 +315,9 @@ class CrossSectionWidget:
         
         if not filepath:
             return
-
+        
+        num_electrodes = self.num_electrodes_var.get()
+        
         all_data_rows = []
         
         # Loop through every run and format it
@@ -290,25 +328,29 @@ class CrossSectionWidget:
             pos_col = np.full(time.shape, pos_str, dtype=object)
             
             # Stack time, run number, and all 8 electrode signals
-            run_data = np.column_stack((
-                run_col,
-                time,
-                pos_col,
-                signals[0, 0], signals[0, 1], signals[0, 2], signals[0, 3],
-                signals[1, 0], signals[1, 1], signals[1, 2], signals[1, 3]
-            ))
+            signal_cols = []
+            for section in range(2):
+                for e in range(num_electrodes):
+                    signal_cols.append(signals[section, e])
+            
+            # Stack them all together (run, time, pos, then all signals)
+            run_data = np.column_stack([run_col, time, pos_col] + signal_cols)
             all_data_rows.append(run_data)
 
         # Stack all the runs vertically into one big array
         final_data = np.vstack(all_data_rows)
 
-        # Update header to include Axon Position
-        header = "Run, Time(s), Axon_Position(x,y), Sec1_E1, Sec1_E2, Sec1_E3, Sec1_E4, Sec2_E1, Sec2_E2, Sec2_E3, Sec2_E4"
+        # Dynamically build the header
+        header = ["Run", "Time(s)", "Axon_Position(x,y)"]
+        for section in range(2):
+            for e in range(num_electrodes):
+                header.append(f"Sec{section+1}_E{e+1}")
+        header_str = ",".join(header)
+
+        # Dynamically build the format string (%d, %f, %s, then %f for all signals)
+        fmt_list = ['%d', '%.6f', '%s'] + ['%.6f'] * (2 * num_electrodes)
         
-        # Update formatting: %d for Run, %.6f for time, %s for string position, and %.6f for the 8 signals
-        fmt_list = ['%d', '%.6f', '%s'] + ['%.6f'] * 8
-        
-        np.savetxt(filepath, final_data, delimiter=",", header=header, comments='', fmt=fmt_list)
+        np.savetxt(filepath, final_data, delimiter=",", header=header_str, comments='', fmt=fmt_list)
 
     
         
@@ -344,6 +386,8 @@ class CrossSectionWidget:
         # If no positions are passed in, generate new random ones
         if positions is None:
             positions = self.get_valid_positions(num_neurons)
+
+        print(f"New Axon Position: {positions}")
             
         # Save the positions so the "Same Axon" button can reuse them
         self.current_positions = positions
@@ -355,7 +399,8 @@ class CrossSectionWidget:
         "num_neurons": self.num_neurons_var.get(),
         "attenuation":self.attenuation_var.get(),
         "section_distance_mm":self.section_distance_var.get(),
-        "noise_level": self.noise_level_var.get()}
+        "noise_level": self.noise_level_var.get(),
+        "num_electrodes": self.num_electrodes_var.get()}
 
         neu_param = {
         "amp": [var.get() for var in self.amplitude_vars],
@@ -388,6 +433,15 @@ class CrossSectionWidget:
                 linewidth=1.2, zorder=1,))
             
         # electrode color
+        num_electrodes = self.num_electrodes_var.get()
+        
+        # Generate a dynamic color list (using matplotlib's tab20 for up to 20 colors)
+        cmap = plt.get_cmap('tab20')
+        colors = [cmap(i) for i in range(num_electrodes)]
+
+        section_axes = [self.ax_section1, self.ax_section2]
+
+        num_electrodes = self.num_electrodes_var.get()
         for i, (px, py) in enumerate(electrodes):
             self.ax_grid.plot(
                 px, py, "s", ms=6,
@@ -405,6 +459,11 @@ class CrossSectionWidget:
         # axon plot
         for axon_pos in axons:
             self.ax_grid.plot(axon_pos[0], axon_pos[1], "o", ms=3, color="#a33", zorder=4)
+            
+
+        # axon plot
+        for axon_pos in axons:
+            self.ax_grid.plot(axon_pos[0], axon_pos[1], "o", ms=3, color="#a33", zorder=4)
         # plot
         self.ax_grid.set_aspect("equal")
         self.ax_grid.set_xlim(-axis_limit, axis_limit)
@@ -417,13 +476,12 @@ class CrossSectionWidget:
         self.ax_grid.set_ylabel("y (mm)", size=6)
         self.ax_grid.set_title("Nerve cross-section", size=7)
 
-        
-        colors = ["tab:blue", "tab:orange", "tab:green", "tab:red"]
+    
         section_axes = [self.ax_section1, self.ax_section2]
 
         # electrode plot
         for section, ax in enumerate(section_axes):
-            for electrode in range(4):
+            for electrode in range(num_electrodes):
                 ax.plot(
                     time,
                     signals[section, electrode],
