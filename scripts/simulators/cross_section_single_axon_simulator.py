@@ -230,7 +230,7 @@ class CrossSectionWidget:
 
             # Add controls for this neuron
             self.add_control(self.neu_frame, "Amplitude (µV)", self.amplitude_vars[i], 0.1, 5, 0.1, col, row=1)
-            self.add_control(self.neu_frame, "Velocity (m/s)", self.velocity_vars[i], 1, 120, 1, col+1, row=1)
+            self.add_control(self.neu_frame, "Velocity (m/s)", self.velocity_vars[i], -120, 120, 1, col+1, row=1)
             self.add_control(self.neu_frame, "Firing Rate (Hz)", self.rate_vars[i], 1, 120, 1, col+2, row=1)
 
     def add_control(self, parent, label, variable, low, high, step, column, row=0):
