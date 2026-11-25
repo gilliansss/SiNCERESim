@@ -87,7 +87,7 @@ def compute_and_plot_heatmap(sig1, sig2, Fs, distance_mm, window_width_s, step_s
     mesh = ax.pcolormesh(time_axis, y_axis, cross_correlations, shading='auto', cmap='bone')
     
     # Custom Colormap (Bone for background, Hot for high correlation)
-    threshold_multiplier = 2.5˝ #increase or decrease threshold
+    threshold_multiplier = 1.5 #increase or decrease threshold
     corr_threshold = threshold_multiplier * np.nanstd(cross_correlations)
     
     # Get min/max

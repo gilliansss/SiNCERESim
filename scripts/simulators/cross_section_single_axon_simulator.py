@@ -5,6 +5,7 @@ from matplotlib.patches import Circle
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from crosscorrelation import *
 from tkinter import messagebox, ttk
+import csv
 
 
 
@@ -12,12 +13,12 @@ from tkinter import messagebox, ttk
 from raw_waveform_generator import get_spike_waveform
 
 spike_duration=0.002
-grid_spacing_mm = 0.05
+grid_spacing_mm = 0.01
 nerve_radius_mm = 0.4
 axis_limit = 0.75
 
-grid_size = 17
-half_grid = 8
+grid_size = 81
+half_grid = 40
     
 def simulate(positions, parameter, neu_parameter):
     Fs = parameter["Fs"]
@@ -165,7 +166,8 @@ class CrossSectionWidget:
         tk.Button(button_frame, text="Run (same axon)", command=self.run_same_axon).pack(side="left", padx=8)
         tk.Button(button_frame, text="Save CSV", command=self.save_csv).pack(side="left", padx=8)
         tk.Button(button_frame, text="Show Heatmap", command=self.show_heatmap).pack(side="left", padx=8)
-        
+
+        tk.Button(button_frame, text="Load Neurons CSV", command=self.load_neurons_csv).pack(side="left", padx=8)
         #Generate the graph 
         self.figure, axes = plt.subplot_mosaic(
             [["cross", "sig1"], 
@@ -193,15 +195,63 @@ class CrossSectionWidget:
 
         
         self.canvas.get_tk_widget().pack(fill="both", expand=True)
-        # 5. Initialize the Neuron Controls for the first time
+        #Initialize the Neuron Controls for the first time
         self.rebuild_neuron_controls()
 
-        # 6. Add the listener to rebuild controls when Num Neurons changes
+        # Rebuild controls when Num Neurons changes
         self.num_neurons_var.trace_add("write", lambda *args: self.rebuild_neuron_controls())
 
-        # 7. Initial run
         self.run()
 
+    def load_neurons_csv(self):
+        filepath = tk.filedialog.askopenfilename(
+            filetypes=[("CSV Files", "*.csv"), ("All Files", "*.*")],
+            title="Load Neuron Parameters"
+        )
+        
+        if not filepath:
+            return
+            
+        try:
+            with open(filepath, mode='r') as f:
+                reader = csv.DictReader(f)
+                rows = list(reader)
+                
+            if not rows:
+                messagebox.showwarning("Empty CSV", "The selected CSV file is empty.")
+                return
+                
+            # Check if the required columns exist
+            required_cols = ['row', 'col', 'amp', 'velocity', 'rate']
+            if not all(k in reader.fieldnames for k in required_cols):
+                messagebox.showerror("Format Error", f"CSV must contain columns: {', '.join(required_cols)}")
+                return
+                
+            num_neurons = len(rows)
+            
+            # 1. Update the GUI to have the exact number of neurons
+            self.num_neurons_var.set(num_neurons)
+            self.rebuild_neuron_controls() # This creates the new DoubleVar lists
+            
+            positions = []
+            
+            # 2. Inject the CSV values into the GUI variables
+            for i, r in enumerate(rows):
+                self.amplitude_vars[i].set(float(r['amp']))
+                self.velocity_vars[i].set(float(r['velocity']))
+                self.rate_vars[i].set(float(r['rate']))
+                
+                # Store the positions (row, col)
+                positions.append((int(r['row']), int(r['col'])))
+                
+            # 3. Save positions so "Run (same axon)" uses them
+            self.current_positions = positions
+            
+            messagebox.showinfo("Success", f"Loaded {num_neurons} neurons from CSV.\nClick 'Run (same axon)' to simulate them.")
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to load CSV:\n{str(e)}")
+            
     def rebuild_neuron_controls(self):
         # Clear existing widgets in the frame
         for widget in self.neu_frame.winfo_children():
@@ -421,7 +471,7 @@ class CrossSectionWidget:
         self.ax_raster.clear()
 
         # draw the 17x17 position grid.
-        for i in range(grid_size):
+        for i in range(0,grid_size,5):
             p = (i - half_grid) * grid_spacing_mm
             self.ax_grid.axvline(p, color="lightgray", linewidth=0.7)
             self.ax_grid.axhline(p, color="lightgray", linewidth=0.7)
