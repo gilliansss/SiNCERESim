@@ -117,7 +117,12 @@ class CrossSectionWidget:
         self.noise_level_var= tk.DoubleVar(value=0.05)
         self.section_distance_var= tk.IntVar(value=2) #distance between proximal and distal section 2mm
         self.attenuation_var=tk.IntVar(value= 1)
-        self.num_electrodes_var = tk.IntVar(value=4) 
+        self.num_electrodes_var = tk.IntVar(value=4)
+        self.correlate_amp_vel_var = tk.BooleanVar(value=False) 
+
+        self._updating_link = False
+        self.amp_vel_ratio = 40.0 
+        
 
         # 2. Neuron Variables (Lists to hold values for multiple neurons)
         self.amplitude_vars = []
@@ -138,6 +143,16 @@ class CrossSectionWidget:
         self.add_control(sim_frame, "Distance (mm)", self.section_distance_var,1,10, 1,6)
         self.add_control(sim_frame, "Attenuation Rate", self.attenuation_var, 1,5,1, 8)
         self.add_control(sim_frame, "Num Electrodes", self.num_electrodes_var, 2, 16, 1, 10)
+        
+        #Correlate Amplitude to Velocity
+        tk.Checkbutton(
+            sim_frame, 
+            text="Correlate Amp to Vel", 
+            variable=self.correlate_amp_vel_var,
+            command=self._sync_all_neurons,
+            font=("Arial", 8)
+
+        ).grid(row=1, column=12, padx=10, sticky="w")
 
         #Neuron Frame
         self.neu_frame = tk.LabelFrame(root, text="Neuron Parameters", padx=5, pady=5)
@@ -202,6 +217,31 @@ class CrossSectionWidget:
         self.num_neurons_var.trace_add("write", lambda *args: self.rebuild_neuron_controls())
 
         self.run()
+
+    def _on_amp_change(self, index, *args):
+        if not self.correlate_amp_vel_var.get() or self._updating_link:
+            return
+        self._updating_link = True
+        try:
+            amp = self.amplitude_vars[index].get()
+            self.velocity_vars[index].set(amp * self.amp_vel_ratio)
+        finally:
+            self._updating_link = False
+
+    def _on_vel_change(self, index, *args):
+        if not self.correlate_amp_vel_var.get() or self._updating_link:
+            return
+        self._updating_link = True
+        try:
+            vel = self.velocity_vars[index].get()
+            self.amplitude_vars[index].set(vel / self.amp_vel_ratio)
+        finally:
+            self._updating_link = False
+    
+    def _sync_all_neurons(self):
+        if self.correlate_amp_vel_var.get():
+            for i in range(len(self.amplitude_vars)):
+                self._on_amp_change(i)
 
     def load_neurons_csv(self):
         filepath = tk.filedialog.askopenfilename(
@@ -270,6 +310,9 @@ class CrossSectionWidget:
             self.amplitude_vars.append(tk.DoubleVar(value=1.0))
             self.velocity_vars.append(tk.DoubleVar(value=40.0))
             self.rate_vars.append(tk.DoubleVar(value=100))
+
+            self.amplitude_vars[i].trace_add("write", lambda *args, idx=i: self._on_amp_change(idx, *args))
+            self.velocity_vars[i].trace_add("write", lambda *args, idx=i: self._on_vel_change(idx, *args))
 
             col = i * 3 # Offset columns for each neuron
             
@@ -437,7 +480,6 @@ class CrossSectionWidget:
         if positions is None:
             positions = self.get_valid_positions(num_neurons)
 
-        print(f"New Axon Position: {positions}")
             
         # Save the positions so the "Same Axon" button can reuse them
         self.current_positions = positions
@@ -453,9 +495,10 @@ class CrossSectionWidget:
         "num_electrodes": self.num_electrodes_var.get()}
 
         neu_param = {
-        "amp": [var.get() for var in self.amplitude_vars],
-        "velocity": [var.get() for var in self.velocity_vars],
-        "rate": [var.get() for var in self.rate_vars],}
+            "amp": [var.get() for var in self.amplitude_vars],
+            "velocity": [var.get() for var in self.velocity_vars],
+            "rate": [var.get() for var in self.rate_vars],
+        }
 
         # run simulation with current values
         time, signals, axons, electrodes, delay, all_spikes = simulate(
